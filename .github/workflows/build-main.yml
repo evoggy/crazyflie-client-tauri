@@ -1,9 +1,9 @@
-name: Build master
+name: Build main
 
 on:
   push:
     branches:
-      - master
+      - main
 
 # This workflow will build your tauri app without uploading it anywhere.
 
