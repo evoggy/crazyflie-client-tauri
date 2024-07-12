@@ -5,6 +5,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::{thread, time};
+use tokio::runtime::Runtime;
 
 use crazyflie_lib::Crazyflie;
 use futures::StreamExt;
@@ -156,12 +157,12 @@ async fn crazyflie_backend_connected(
 ) -> mpsc::Receiver<CrazyflieBackendCommand> {
     let link_context = crazyflie_link::LinkContext::new(async_executors::AsyncStd);
 
-    // let cf = crazyflie_lib::Crazyflie::connect_from_uri(
-    //     async_executors::AsyncStd,
-    //     &link_context,
-    //     uri.as_str(),
-    // )
-    // .await.unwrap();
+    let cf = crazyflie_lib::Crazyflie::connect_from_uri(
+        async_executors::AsyncStd,
+        &link_context,
+        uri.as_str(),
+    )
+    .await.unwrap();
 
     // match cf {
     //     Ok(cf) => {
@@ -221,7 +222,7 @@ async fn crazyflie_backend(
                         crazyflie_backend_scan(ui_to_cf_rx, address.to_string(), t.clone()).await;
                 }
                 CrazyflieBackendCommand::Connect(uri) => {
-                    println!("Connect to Crazyflie on {}", uri);
+                    println!("Con to Crazyflie on {}", uri);
                     ui_to_cf_rx =
                         crazyflie_backend_connected(ui_to_cf_rx, uri.to_string(), t.clone()).await;
                 }
@@ -256,8 +257,13 @@ fn main() {
             // This thread runs the Crazyflie backend and receives commands from the
             // UI via Tauri commands
             let t = app.handle();
-            tauri::async_runtime::spawn(async move {
-                crazyflie_backend(ui_to_cf_rx, t).await;
+            std::thread::spawn(move || {
+
+                let rt = Runtime::new().unwrap();
+
+                let _guard = rt.enter();
+                rt.block_on(crazyflie_backend(ui_to_cf_rx, t));
+                
             });
 
             Ok(())
