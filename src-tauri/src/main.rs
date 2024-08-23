@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
 use std::{thread, time};
+use tauri::Emitter;
 use tokio::runtime::Runtime;
 
 use crazyflie_lib::Crazyflie;
@@ -129,12 +130,12 @@ async fn crazyflie_backend_scan(
         match link_context.scan([0xE7; 5]).await {
           Ok(uris) => {
               let response = ScanResponse { uris, err: None };
-              t.emit_all("scan", &response).unwrap();
+              t.emit("scan", &response).unwrap();
           }
           Err(e) => {
               println!("Error scanning for Crazyflies: {:?}", e);
               let response = ScanResponse { uris: vec![], err: Some(e.to_string()) };
-              t.emit_all("scan", &response).unwrap();
+              t.emit("scan", &response).unwrap();
               break;
           }
       }
@@ -181,14 +182,14 @@ async fn crazyflie_backend_connected(
                 uri,
                 err: None,
             };
-            t.emit_all("connected", &response).unwrap();
+            t.emit("connected", &response).unwrap();
 
             let (tx, rx) = flume::unbounded::<String>();
 
             std::thread::spawn( move || {
                 while let Ok(line) = rx.recv() {
                   let response = ConsoleEvent { message: line.clone()};
-                  t.emit_all("console", &response).unwrap();
+                  t.emit("console", &response).unwrap();
                     println!("Received: {}", line);
                 }
             });
@@ -226,7 +227,7 @@ async fn crazyflie_backend_connected(
                 uri,
                 err: Some(e.to_string()),
             };
-            t.emit_all("connected", &response).unwrap();
+            t.emit("connected", &response).unwrap();
         }
     }
 
@@ -290,8 +291,10 @@ fn main() {
         .setup(|app| {
             // This thread runs the Crazyflie backend and receives commands from the
             // UI via Tauri commands
-            let t = app.handle();
+            let t = app.handle().clone();
             std::thread::spawn(move || {
+
+                let t = t.to_owned();
 
                 let rt = Runtime::new().unwrap();
 
