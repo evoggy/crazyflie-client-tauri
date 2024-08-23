@@ -1,17 +1,11 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::path::Path;
-use std::sync::Arc;
-use std::sync::Mutex;
 use std::time::Duration;
-use std::{thread, time};
 use tauri::Emitter;
 use tokio::runtime::Runtime;
 
-use crazyflie_lib::Crazyflie;
 use futures::StreamExt;
-use tauri::Manager;
 //use tokio::sync::mpsc;
 use flume as mpsc;
 use futures_util::task::SpawnExt;
@@ -91,9 +85,9 @@ enum CrazyflieBackendCommand {
 
 enum CrazyflieBackendState {
     Idle,
-    Scanning,
-    Connecting,
-    Connected,
+    // Scanning,
+    // Connecting,
+    // Connected,
 }
 
 #[derive(Debug, serde::Serialize, TS)]
@@ -118,7 +112,7 @@ struct ConsoleEvent {
 }
 
 async fn crazyflie_backend_scan(
-    mut ui_to_cf_rx: mpsc::Receiver<CrazyflieBackendCommand>,
+    ui_to_cf_rx: mpsc::Receiver<CrazyflieBackendCommand>,
     address: String,
     t: tauri::AppHandle,
 ) -> mpsc::Receiver<CrazyflieBackendCommand> {
@@ -161,7 +155,7 @@ async fn crazyflie_backend_scan(
 }
 
 async fn crazyflie_backend_connected(
-    mut ui_to_cf_rx: mpsc::Receiver<CrazyflieBackendCommand>,
+    ui_to_cf_rx: mpsc::Receiver<CrazyflieBackendCommand>,
     uri: String,
     t: tauri::AppHandle,
 ) -> mpsc::Receiver<CrazyflieBackendCommand> {
@@ -238,7 +232,7 @@ async fn crazyflie_backend(
     mut ui_to_cf_rx: mpsc::Receiver<CrazyflieBackendCommand>,
     t: tauri::AppHandle,
 ) {
-    let state = CrazyflieBackendState::Idle;
+    let _state = CrazyflieBackendState::Idle;
 
     loop {
         // Idle -> Scanning or Connecting
