@@ -18,6 +18,8 @@ import { Sidebar, Menu, MenuItem, SubMenu } from 'react-pro-sidebar';
 import 'bootstrap/dist/css/bootstrap.min.css';
 
 import ConnectionModal from "./components/connection_modal";
+import ConsoleTab from "./components/console_tab";
+import BackEnd from './backend';
 
 function App() {
   const [greetMsg, setGreetMsg] = useState("");
@@ -40,7 +42,7 @@ function App() {
         <Route path="/" element={<Layout />}>
           <Route index element={<Home />} />
           <Route path="fly" element={<Fly />} />
-          <Route path="console" element={<Console />} />
+          <Route path="console" element={<ConsoleTab />} />
 
           {/* Using path="*"" means "match anything", so this route
                 acts like a catch-all for URLs that we don't have explicit
@@ -48,6 +50,7 @@ function App() {
           <Route path="*" element={<NoMatch />} />
         </Route>
       </Routes>
+      <BackEnd/>
     </div>
   );
 }
@@ -128,14 +131,6 @@ function Fly() {
   return (
     <div>
       <h2>Fly</h2>
-    </div>
-  );
-}
-
-function Console() {
-  return (
-    <div>
-      <pre>Console output right here</pre>
     </div>
   );
 }

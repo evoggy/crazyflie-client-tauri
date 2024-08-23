@@ -14,7 +14,7 @@ import 'bootstrap/dist/css/bootstrap.min.css';
 
 import { invoke } from "@tauri-apps/api/tauri";
 
-import { ScanResponse } from '../backend-interface';
+import { ScanResponse } from '../interface/scan_response';
 
 
 // interface ProgressEventPayload {

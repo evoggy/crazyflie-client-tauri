@@ -4,14 +4,16 @@
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::time::Duration;
 use std::{thread, time};
 use tokio::runtime::Runtime;
 
 use crazyflie_lib::Crazyflie;
 use futures::StreamExt;
 use tauri::Manager;
-use tokio::sync::mpsc;
-
+//use tokio::sync::mpsc;
+use flume as mpsc;
+use futures_util::task::SpawnExt;
 use ts_rs::TS;
 
 #[tauri::command]
@@ -31,7 +33,7 @@ async fn connect(uri: &str, state: tauri::State<'_, BackendState>) -> Result<(),
     state
         .cmd
         .send(CrazyflieBackendCommand::Connect(uri.to_string()))
-        .await
+        
         .map_err(|e| format!("{:?}", e))?;
     Ok(())
 }
@@ -41,7 +43,7 @@ async fn disconnect(state: tauri::State<'_, BackendState>) -> Result<(), String>
     state
         .cmd
         .send(CrazyflieBackendCommand::Disconnect)
-        .await
+        
         .map_err(|e| format!("{:?}", e))?;
     Ok(())
 }
@@ -52,7 +54,7 @@ async fn start_scan(address: &str, state: tauri::State<'_, BackendState>) -> Res
     state
         .cmd
         .send(CrazyflieBackendCommand::StartScan(address.to_string()))
-        .await
+        
         .map_err(|e| format!("{:?}", e))?;
     Ok(())
 }
@@ -63,7 +65,7 @@ async fn stop_scan(state: tauri::State<'_, BackendState>) -> Result<(), String> 
     state
         .cmd
         .send(CrazyflieBackendCommand::StopScan)
-        .await
+        
         .map_err(|e| format!("{:?}", e))?;
     Ok(())
 }
@@ -94,18 +96,24 @@ enum CrazyflieBackendState {
 }
 
 #[derive(Debug, serde::Serialize, TS)]
-#[ts(export, export_to = "../src/backend-interface.ts")]
+#[ts(export, export_to = "../src/interface/scan_response.ts")]
 struct ScanResponse {
     uris: Vec<String>,
     err: Option<String>,
 }
 
 #[derive(Debug, serde::Serialize, TS)]
-#[ts(export, export_to = "../src/backend-interface.ts")]
+#[ts(export, export_to = "../src/interface/connected_event.ts")]
 struct ConnectedEvent {
     connected: bool,
     uri: String,
     err: Option<String>,
+}
+
+#[derive(Debug, serde::Serialize, TS)]
+#[ts(export, export_to = "../src/interface/console_event.ts")]
+struct ConsoleEvent {
+    message: String,
 }
 
 async fn crazyflie_backend_scan(
@@ -117,33 +125,34 @@ async fn crazyflie_backend_scan(
     //let mut ui_to_cf_rx_inner = ui_to_cf_rx.unwrap();
     loop {
         println!("Looping around to scan again!");
-        tokio::select! {
-          found = link_context.scan([0xE7; 5]) => {
-              println!("Scanning for Crazyflies on address {}", address);
-              match found {
-                  Ok(uris) => {
-                      let response = ScanResponse { uris, err: None };
-                      t.emit_all("scan", &response).unwrap();
-                  }
-                  Err(e) => {
-                      println!("Error scanning for Crazyflies: {:?}", e);
-                      let response = ScanResponse { uris: vec![], err: Some(e.to_string()) };
-                      t.emit_all("scan", &response).unwrap();
-                      break;
-                  }
-              }
+        println!("Scanning for Crazyflies on address {}", address);
+        match link_context.scan([0xE7; 5]).await {
+          Ok(uris) => {
+              let response = ScanResponse { uris, err: None };
+              t.emit_all("scan", &response).unwrap();
           }
-          Some(input) = ui_to_cf_rx.recv() => {
-              match input {
-                  CrazyflieBackendCommand::StopScan => {
-                      break;
-                  }
-                  _ => {
-                      println!("Error: Received CF command: {:?} in scan state!", input);
-                  }
-              }
+          Err(e) => {
+              println!("Error scanning for Crazyflies: {:?}", e);
+              let response = ScanResponse { uris: vec![], err: Some(e.to_string()) };
+              t.emit_all("scan", &response).unwrap();
+              break;
           }
+      }
+
+      match ui_to_cf_rx.try_recv() {
+        Ok(input) => {
+            match input {
+                CrazyflieBackendCommand::StopScan => {
+                  println!("Will be exiting scan mode!");
+                    break;
+                }
+                _ => {
+                    println!("Error: Received CF command: {:?} in scan state!", input);
+                }
+            }
         }
+        _ => {}
+      }
     }
     println!("Exiting scan mode!");
 
@@ -157,44 +166,69 @@ async fn crazyflie_backend_connected(
 ) -> mpsc::Receiver<CrazyflieBackendCommand> {
     let link_context = crazyflie_link::LinkContext::new(async_executors::AsyncStd);
 
-    let cf = crazyflie_lib::Crazyflie::connect_from_uri(
-        async_executors::AsyncStd,
-        &link_context,
-        uri.as_str(),
-    )
-    .await.unwrap();
+    println!("Calling connect now on {}!", uri);
 
-    // match cf {
-    //     Ok(cf) => {
-    //         println!("Connected to Crazyflie on {}", uri);
-    //         let response = ConnectedEvent {
-    //             connected: true,
-    //             uri,
-    //             err: None,
-    //         };
-    //         t.emit_all("connected", &response).unwrap();
+    let cf = async_executors::AsyncStd::block_on(async {
+      crazyflie_lib::Crazyflie::connect_from_uri(async_executors::AsyncStd, &link_context, uri.as_str())
+          .await
+  });
 
-    //         let mut console_stream = cf.console.line_stream().await;
+    match cf {
+        Ok(cf) => {
+            println!("Connected to Crazyflie on {}", uri);
+            let response = ConnectedEvent {
+                connected: true,
+                uri,
+                err: None,
+            };
+            t.emit_all("connected", &response).unwrap();
+
+            let (tx, rx) = flume::unbounded::<String>();
+
+            std::thread::spawn( move || {
+                while let Ok(line) = rx.recv() {
+                  let response = ConsoleEvent { message: line.clone()};
+                  t.emit_all("console", &response).unwrap();
+                    println!("Received: {}", line);
+                }
+            });
+
+            println!("Starting console");
+    
+            //async_executors::AsyncStd::block_on(async {
+                let mut stream = cf.console.line_stream().await;
+    
+                async_executors::AsyncStd.spawn(async move {
+                    while let Some(line) = stream.next().await {
+                        tx.send_async(line).await.expect("Failed to send line");
+                    }
+                    println!("Exiting console stream loop");
+                }).unwrap();
+    
+            //}).unwrap();
+
+            println!("Starting to sleep a bit");
+
+            async_std::task::sleep(Duration::from_secs(10)).await;
+
+            println!("Have Slept, waiting for disconnect");
+
+            cf.wait_disconnect().await;
+
+            println!("Exiting main connected loop");
+    
            
-    //     }
-    //     Err(e) => {
-    //         println!("Error connecting to Crazyflie on {}: {:?}", uri, e);
-    //         let response = ConnectedEvent {
-    //             connected: false,
-    //             uri,
-    //             err: Some(e.to_string()),
-    //         };
-    //         t.emit_all("connected", &response).unwrap();
-    //     }
-    // }
-
-    //let mut console_stream = cf.console.line_stream().await;
-
-    // tokio::select! {
-    //   Some(line) = console_stream.next() => {
-    //       println!("Console line: {:?}", line);
-    //   }
-    // }
+        }
+        Err(e) => {
+            println!("Error connecting to Crazyflie on {}: {:?}", uri, e);
+            let response = ConnectedEvent {
+                connected: false,
+                uri,
+                err: Some(e.to_string()),
+            };
+            t.emit_all("connected", &response).unwrap();
+        }
+    }
 
     ui_to_cf_rx
 }
@@ -212,17 +246,17 @@ async fn crazyflie_backend(
         // Connected -> Idle
         // if state
 
-        let cmd = ui_to_cf_rx.recv().await;
+        let cmd = ui_to_cf_rx.recv();
 
         match cmd {
-            Some(output) => match output {
+            Ok(output) => match output {
                 CrazyflieBackendCommand::StartScan(address) => {
                     println!("Start scanning for Crazyflies on address {}", address);
                     ui_to_cf_rx =
                         crazyflie_backend_scan(ui_to_cf_rx, address.to_string(), t.clone()).await;
                 }
                 CrazyflieBackendCommand::Connect(uri) => {
-                    println!("Con to Crazyflie on {}", uri);
+                    println!("Connect to Crazyflie on {}", uri);
                     ui_to_cf_rx =
                         crazyflie_backend_connected(ui_to_cf_rx, uri.to_string(), t.clone()).await;
                 }
@@ -230,8 +264,8 @@ async fn crazyflie_backend(
                     println!("Error: Received CF command: {:?} in main state!", output);
                 }
             },
-            None => {
-                println!("Error: Received None from ui_to_cf_rx in main state!");
+            Err(e) => {
+                println!("Error receiving CF command: {:?}", e);
             }
         }
         // tokio::select! {
@@ -246,7 +280,7 @@ async fn crazyflie_backend(
 }
 
 fn main() {
-    let (ui_to_cf_tx, ui_to_cf_rx) = mpsc::channel::<CrazyflieBackendCommand>(1);
+    let (ui_to_cf_tx, ui_to_cf_rx) = mpsc::unbounded();
 
     tauri::Builder::default()
         .manage(BackendState::new(ui_to_cf_tx))
