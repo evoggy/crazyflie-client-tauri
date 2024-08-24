@@ -5,23 +5,9 @@ import Modal from 'react-bootstrap/Modal';
 import Table from 'react-bootstrap/Table';
 
 import { toast } from 'react-toastify';
-
-import Container from 'react-bootstrap/Container';
-import Row from 'react-bootstrap/Row';
-import Col from 'react-bootstrap/Col';
-
 import 'bootstrap/dist/css/bootstrap.min.css';
-
 import { invoke } from "@tauri-apps/api/core";
-
 import { ScanResponse } from '../interface/scan_response';
-
-
-// interface ProgressEventPayload {
-//   matches_per_bs: Stats;
-//   hits_per_sensor: Stats;
-//   sync: Stats;
-// }
 
 interface ProgressEventProps {
   payload: ScanResponse;

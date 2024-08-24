@@ -1,8 +1,4 @@
 import { useState } from 'react';
-import Button from 'react-bootstrap/Button';
-import Modal from 'react-bootstrap/Modal';
-import reactLogo from "./assets/react.svg";
-import { invoke } from "@tauri-apps/api/core";
 import "./App.css";
 
 import { ToastContainer, toast } from 'react-toastify';
@@ -21,20 +17,19 @@ import ConnectionModal from "./components/connection_modal";
 import ConsoleTab from "./components/console_tab";
 import BackEnd from './backend';
 
+
+import createFastContext from "./global_context";
+
+export const { Provider, useStore } = createFastContext({
+  console: ""
+});
+
+
 function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
-
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
-    setGreetMsg(await invoke("greet", { name }));
-  }
-
-  console.log("Rendering main app")
 
   return (
-    <div>
-
+    <Provider>
+      <div>
       {/* Routes nest inside one another. Nested route paths build upon
             parent route paths, and nested route elements render inside
             parent route elements. See the note about <Outlet> below. */}
@@ -51,7 +46,9 @@ function App() {
         </Route>
       </Routes>
       <BackEnd/>
-    </div>
+      </div>
+    </Provider>
+
   );
 }
 
